@@ -1,0 +1,14 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Secrets (e.g. GEMINI_API_KEY)
+.env
+
+# macOS
+.DS_Store
+
