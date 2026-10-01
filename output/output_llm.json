@@ -2,49 +2,52 @@
   {
     "session_id": "41b0dbe7-48b2-46ff-85e2-1442d1a53d10",
     "topic1": {
-      "topic_label": "Enterprise Strategy",
+      "topic_label": "Invention Enterprises",
       "set_of_original_questions": [
-        "How does the Foundation define an \"invention-based enterprise,\" and why is that the right unit of focus compared with startups generally?"
+        "How does the Foundation define an \"invention-based enterprise,\" and why is that the right unit of focus compared with startups generally?",
+        "Create a podcast discussion of the previous response about invention-based enterprises and why they are the Foundation’s unit of focus."
       ],
       "set_of_reframed_questions": [
-        "How does the Foundation define an \"invention-based enterprise,\" and why is that the right unit of focus compared with startups generally?"
+        "How does the Foundation define an \"invention-based enterprise,\" and why is that considered the appropriate unit of focus compared to startups generally?",
+        "How can the previous discussion about invention-based enterprises and the Foundation's focus be adapted into a podcast conversation?"
       ]
     },
     "topic2": {
-      "topic_label": "Agriculture",
+      "topic_label": "Agricultural Movements",
       "set_of_original_questions": [
-        "Why did horticultre farmer joined raitha sangha",
-        "ತೋಟಗಾರಿಕೆ ರೈತರು ರೈತ ಸಂಘವನ್ನು ಏಕೆ ಸೇರಿದರು?",
-        "ತೋಟಗಾರಿಕೆ ರೈತರು, ಅ, ರೈತ ಸಂಘವನ್ನು ಸೇರಲು ಕಾರಣವೇನು?",
-        "Why Farmer joined raitha sanga"
+        "Why did horticultre farmer joined raitha sangha"
       ],
       "set_of_reframed_questions": [
-        "Why did horticulture farmers join the Raitha Sangha?",
-        "Why did horticulture farmers join the Raitha Sangha?",
-        "What was the reason horticulture farmers joined the Raitha Sangha?",
-        "Why did farmers join the Raitha Sangha?"
+        "Why did horticulture farmers join the Raitha Sangha?"
       ]
     },
     "topic3": {
-      "topic_label": "Philanthropic Intermediaries",
+      "topic_label": "Dasra Strategy",
       "set_of_original_questions": [
         "ದಾನ ಧರ್ಮಗಳ ಕುರಿತು ದಾಸ್ರಾವು ಇತರ ಸಹ ಸರ್ಕಾರೇತರ ಸಂಸ್ಥೆಗಳಿಗೆ ಅಂತ ಹೇಗೆ ಭಿನ್ನವಾಗಿದೆ?",
         "Dasra ಯಾವ ಉದ್ದೇಶಗಳ ಮೂಲಕ ಭಾರತದ ಅಭಿವೃದ್ಧಿ ಪರಿಸರ ವ್ಯವಸ್ಥೆಯಲ್ಲಿ ಪರಿಣಾಮ ಉಂಟುಮಾಡಲು ಪ್ರಯತ್ನಿಸುತ್ತದೆ?",
-        "What makes Dasra’s approach to philanthropy different from other NGOs or foundations?",
-        "Compare Dasra’s operating model with other Indian philanthropic intermediaries using the available sources.",
-        "Compare the trade-offs between systems orchestration, organisational capacity building and functional support models in Indian philanthropy.",
-        "Define outcome and attribution metrics for comparing these three intermediary models."
+        "Compare Dasra’s operating model with other Indian philanthropic intermediaries using the available sources."
       ],
       "set_of_reframed_questions": [
         "How does Dasra's approach to philanthropy differ from other non-governmental organizations?",
-        "Through what objectives does Dasra seek to create an impact in India's development ecosystem?",
-        "What makes Dasra's approach to philanthropy different from other NGOs or foundations?",
-        "How does Dasra's operating model compare with other Indian philanthropic intermediaries based on available sources?",
-        "What are the trade-offs between systems orchestration, organizational capacity building, and functional support models in Indian philanthropy?",
-        "What outcome and attribution metrics can be used to compare systems orchestration, organizational capacity building, and functional support intermediary models?"
+        "Through what objectives does Dasra aim to create an impact in India's development ecosystem?",
+        "How does Dasra's operating model compare with other Indian philanthropic intermediaries according to available sources?"
       ]
     },
     "topic4": {
+      "topic_label": "Intermediary Models",
+      "set_of_original_questions": [
+        "Compare the trade-offs between systems orchestration, organisational capacity building and functional support models in Indian philanthropy.",
+        "Define outcome and attribution metrics for comparing these three intermediary models.",
+        "Create a podcast discussion of the previous response about outcome and attribution metrics for philanthropic intermediary models."
+      ],
+      "set_of_reframed_questions": [
+        "What are the trade-offs between systems orchestration, organisational capacity building, and functional support models in Indian philanthropy?",
+        "What outcome and attribution metrics can be used to compare these three intermediary models?",
+        "How can the previous response on outcome and attribution metrics for philanthropic intermediary models be formatted into a podcast discussion?"
+      ]
+    },
+    "topic5": {
       "topic_label": "Concessional Capital",
       "set_of_original_questions": [
         "Investigate the sustaining-case capital logic further, including conditions for continued concessional support and evidence of transition.",
@@ -52,12 +55,12 @@
         "Deepen the guardrails analysis with more evidence on time limits, tapering, renewal decisions, and exit triggers."
       ],
       "set_of_reframed_questions": [
-        "What is the logic behind sustaining-case capital, including the conditions for continued concessional support and evidence of transition?",
-        "In sustaining cases, what is the exit or graduation path, and how is ongoing concessional capital prevented from becoming an open-ended subsidy?",
-        "What evidence supports the guardrails analysis regarding time limits, tapering, renewal decisions, and exit triggers?"
+        "What is the rationale behind sustaining-case capital, including the conditions required for ongoing concessional support and evidence of transition?",
+        "What are the exit or graduation pathways in sustaining cases, and how is ongoing concessional capital prevented from turning into an open-ended subsidy?",
+        "What additional evidence exists regarding time limits, tapering, renewal decisions, and exit triggers to support the guardrails analysis?"
       ]
     },
-    "topic5": {
+    "topic6": {
       "topic_label": "Report Analysis",
       "set_of_original_questions": [
         "Analyze this document \"GGI REPORT Digital - 2 Dec 2019 V2.pdf\" in depth. What are its key insights, main arguments, and how does it connect to development sector themes?",
@@ -65,7 +68,7 @@
         "Challenge the previous response. What counterarguments, tensions, or alternative readings should we consider?"
       ],
       "set_of_reframed_questions": [
-        "What are the key insights and main arguments of the document \"GGI REPORT Digital - 2 Dec 2019 V2.pdf\", and how does it connect to development sector themes?",
+        "What are the key insights and main arguments of the document \"GGI REPORT Digital - 2 Dec 2019 V2.pdf\", and how does it connect to broader development sector themes?",
         "What is the objective of this document?",
         "What counterarguments, tensions, or alternative readings should be considered regarding the previous response?"
       ]
