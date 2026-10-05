@@ -1,0 +1,198 @@
+{
+  "lens-v3": [
+    {
+      "rootName": "APURVAROOT",
+      "tenants": [
+        "APURVA",
+        "APURVA_COMMUNITY"
+      ]
+    },
+    {
+      "rootName": "APURVASTORIES",
+      "tenants": [
+        "APURVASTORIES"
+      ]
+    },
+    {
+      "rootName": "APURVA_NEW",
+      "tenants": [
+        "APURVA_PUBLIC",
+        "APURVA_PUBLIC2"
+      ]
+    },
+    {
+      "rootName": "APURVA_PUBLIC",
+      "tenants": [
+        "APURVA_PUBLIC"
+      ]
+    },
+    {
+      "rootName": "APURVA_THEME",
+      "tenants": [
+        "APURVA_DEFAULT",
+        "APURVA_GRADIENT",
+        "APURVA_PURPLE"
+      ]
+    },
+    {
+      "rootName": "DASRAROOT",
+      "tenants": [
+        "DASRA"
+      ]
+    },
+    {
+      "rootName": "IDR_NEW",
+      "tenants": []
+    },
+    {
+      "rootName": "MUSE",
+      "tenants": []
+    },
+    {
+      "rootName": "MUSEUM",
+      "tenants": [
+        "MUSE"
+      ]
+    },
+    {
+      "rootName": "PAYCOM",
+      "tenants": []
+    },
+    {
+      "rootName": "SELCO_INTERNAL",
+      "tenants": []
+    },
+    {
+      "rootName": "TEDXROOT",
+      "tenants": [
+        "TEDX"
+      ]
+    }
+  ],
+  "selco-v3": [
+    {
+      "rootName": "AGRIMUSEUMROOT",
+      "tenants": [
+        "AGRIMUSEUM",
+        "AGRIMUSEUMROOTPRIVATE"
+      ]
+    },
+    {
+      "rootName": "LEMELSONROOT",
+      "tenants": [
+        "LEMELSON"
+      ]
+    },
+    {
+      "rootName": "SELCOINTERNALROOT",
+      "tenants": [
+        "SELCOINTERNAL"
+      ]
+    },
+    {
+      "rootName": "SELCOROOT",
+      "tenants": [
+        "SELCO"
+      ]
+    }
+  ],
+  "c4ec-v3": [
+    {
+      "rootName": "C4ECROOT",
+      "tenants": [
+        "C4EC",
+        "C4ECINTERNAL"
+      ]
+    }
+  ],
+  "dasra-v3": [
+    {
+      "rootName": "DASRAROOT",
+      "tenants": [
+        "DASRA"
+      ]
+    }
+  ],
+  "fes-v3": [
+    {
+      "rootName": "FESROOT",
+      "tenants": [
+        "FES"
+      ]
+    }
+  ],
+  "thread-v3": [
+    {
+      "rootName": "APURVA",
+      "tenants": []
+    },
+    {
+      "rootName": "Apurva",
+      "tenants": []
+    },
+    {
+      "rootName": "DASRA",
+      "tenants": [
+        "CP",
+        "CRA",
+        "CT",
+        "DAIT",
+        "Finance",
+        "GivingPi",
+        "IO",
+        "Leadership",
+        "NEEV",
+        "R&I",
+        "RIF",
+        "SOCO",
+        "WSH",
+        "YPAGE"
+      ]
+    },
+    {
+      "rootName": "FES",
+      "tenants": []
+    },
+    {
+      "rootName": "SELCO",
+      "tenants": [
+        "CIH",
+        "Comms",
+        "CSP",
+        "G7H",
+        "KnowledgeOrgWide",
+        "KrishiMitra",
+        "PCW",
+        "PWD",
+        "SelcoLabs",
+        "Social_Alpha",
+        "TECH"
+      ]
+    },
+    {
+      "rootName": "UPAYA",
+      "tenants": []
+    }
+  ],
+  "upaya-v3": [
+    {
+      "rootName": "UPAYAROOT",
+      "tenants": [
+        "AAVISHKAAR",
+        "ACUMEN",
+        "ANKUR_CAPITAL",
+        "ARTHA_IMPACT",
+        "BEYOND_CAPITAL_VENTURES",
+        "ELEA",
+        "NEXT_BHARAT",
+        "S3IDF",
+        "SATHGURU_CATALYSERS",
+        "SOCIAL_ALPHA",
+        "UNLEASH",
+        "UPAYA",
+        "VILLGRO",
+        "YUNUS_SOCIAL_BUSINESS"
+      ]
+    }
+  ]
+}

@@ -1,5 +1,6 @@
 #!/bin/bash
-# Run one pass of the pipeline: fetch from Postgres -> Gemini -> output/output_llm.json
+# Run one pass of the pipeline: fetch from Postgres -> Gemini -> output/<previous week>.json
+# (process_llm.py exits immediately if that week's file already exists, so each week is built once)
 #
 # Cron calls this every minute; it only actually runs once PIPELINE_INTERVAL_MINUTES
 # (read from .env on every call, default 30) has passed since the last run started.

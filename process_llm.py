@@ -1,20 +1,8 @@
-"""LensV3 question data processing pipeline (LLM version) - script form of process_llm.ipynb.
-
-Fetches questions live from Postgres (see load_postgres.py), batches them by session_id,
-asks Gemini per session to translate, filter non-questions, group into topics and reframe,
-then writes the result to output/output_llm.json.
-
-Requires GEMINI_API_KEY and the Postgres settings in .env.
-
-Usage:
-    python process_llm.py
-    python process_llm.py --out output/my_run.json
-"""
 import argparse
 import json
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
-import pandas as pd
 from dotenv import load_dotenv
 from google import genai
 from google.genai import types
@@ -24,207 +12,247 @@ from load_postgres import load_questions
 
 load_dotenv()
 
-OUTPUT_DIR   = Path('output')
-OUTPUT_FILE  = OUTPUT_DIR / 'output_llm.json'
-NUM_TOPICS   = 6          # every session must be split into exactly this many topics
-MAX_ATTEMPTS = 3          # retries if Gemini doesn't return exactly NUM_TOPICS valid topics
-MODEL        = 'gemini-3.8-flash'
+OUTPUT_DIR          = Path('output')
+NUM_TOPICS          = 6     # topics per org 
+QUESTIONS_PER_TOPIC = 6     # one question per topic per day -> 6 days
+TARGET_QUESTIONS    = NUM_TOPICS * QUESTIONS_PER_TOPIC
+POOL_SIZE           = TARGET_QUESTIONS * 2  # pad with earlier weeks 
+MAX_ATTEMPTS        = 3     # retries if Gemini's answer breaks the rules
+MODEL               = 'gemini-3.8-flash'
 
 
-# ── Structured output & prompt ─────────────────────────────────────────────
-# Gemini refers to questions by ID only and never rewrites the originals.
-# Originals are always copied from the database, so they can't be altered by the model.
+################# Pydantic Validation #####################
 
-class QuestionResult(BaseModel):
-    id: int = Field(description='The ID of the input entry')
-    is_question: bool = Field(description='False for commands/acknowledgements like "Yes", "Approved plan", "Move to the next step"')
-    english: str = Field(description='The entry translated to English (unchanged if already English)')
-    reframed: str = Field(description='A clear, concise, well-formed question in English. Empty string if is_question is false')
-    duplicate_of: int | None = Field(description='ID of an earlier meaningful question that asks the same thing in different words, else null')
+# strucuture for qustion
+class PickedQuestion(BaseModel):
+    id: int = Field(description='The ID of the input entry this question comes from')
+    question: str = Field(description='The entry reframed as a clear, concise, well-formed question in English')
 
-
+# question per topic 
 class Topic(BaseModel):
     label: str = Field(description='Topic title of 1-2 full words, no abbreviations or acronyms, e.g. "Funding Models" or "Agriculture"')
-    question_ids: list[int] = Field(description='IDs of the unique (non-duplicate) questions in this topic')
+    questions: list[PickedQuestion] = Field(max_length=QUESTIONS_PER_TOPIC,description=f'Up to {QUESTIONS_PER_TOPIC} questions, in the order they should be asked (day 1 first)')
 
-
-class SessionResult(BaseModel):
-    questions: list[QuestionResult]
+# weekly topics
+class WeekResult(BaseModel):
     topics: list[Topic] = Field(min_length=NUM_TOPICS, max_length=NUM_TOPICS)
 
 
-SYSTEM_PROMPT = f"""You analyse the questions a user asked in one session of a research assistant about philanthropy and the social sector.
 
-You receive numbered entries. Some are in languages other than English, and some are not questions at all
-(commands or acknowledgements such as "Yes", "Approved plan", "Move to the next step", "Mark this complete").
+#################################### system prompt #######################################################
 
-For each entry:
-- Translate it to English (keep it unchanged if it is already English).
-- Decide whether it is a meaningful question or request for information (is_question).
-- If it is, reframe it as a clear, concise question that keeps the original intent and specifics
-  (names, places, numbers). Fix spelling. Turn instructions such as "Compare X with Y" into direct
+SYSTEM_PROMPT = f"""You analyse the questions users of one organisation asked a research assistant about philanthropy
+and the social sector during one week. Your output is a weekly plan: {NUM_TOPICS} topics with {QUESTIONS_PER_TOPIC} questions each.
+Question 1 of every topic is asked on day 1, question 2 on day 2, and so on.
+
+You receive numbered entries, each tagged (this week) or (earlier). Some are in languages other than English, and
+some are not questions at all (commands or acknowledgements such as "Yes", "Approved plan", "Move to the next step").
+
+Rules:
+- Ignore entries that are not meaningful questions or requests for information.
+- Translate to English and reframe each chosen entry as a clear, concise question that keeps the original intent
+  and specifics (names, places, numbers). Fix spelling. Turn instructions such as "Compare X with Y" into direct
   questions ("How does X compare with Y?"), not generic wrappers.
-- If it asks the same thing as an earlier meaningful question (same intent, even if worded differently
-  or with a spelling difference), set duplicate_of to the ID of the earliest such question. Otherwise null.
-  Questions that are related but ask for different information are not duplicates.
-
-Then group only the meaningful questions into EXACTLY {NUM_TOPICS} topics by what they are about - never more,
-never fewer. Every topic must contain at least one question and the topics must have distinct titles. If the
-questions seem to fall into fewer themes, split the broadest themes into narrower sub-themes until there are
-{NUM_TOPICS}. Give each topic a short title of 1 to 2 words (e.g. "Funding Models", "Agriculture").
-Topic titles must use full words only - no abbreviations, acronyms or short forms (not "GGI Report",
-"NGO Models" or "CSR"). If you don't know what an acronym stands for, describe the subject instead
-(e.g. "Report Analysis").
-Place only unique questions (duplicate_of is null) in topics - every unique meaningful question must
-appear in exactly one topic, and duplicates must not appear in any topic. Return an entry in `questions` for every input ID."""
+- Never pick two entries that ask the same thing (same intent, even if worded differently). Across the whole plan,
+  every question must be distinct.
+- Prefer (this week) entries. Use (earlier) entries only when there are not enough distinct (this week) questions.
+- Group the chosen questions into EXACTLY {NUM_TOPICS} topics by what they are about, with distinct titles, and put
+  {QUESTIONS_PER_TOPIC} questions in every topic ({NUM_TOPICS * QUESTIONS_PER_TOPIC} in total). Only if there are not enough distinct meaningful
+  questions may a topic have fewer, but every topic must have at least one.
+- Within a topic, order the questions so they make a good day-by-day sequence (for example broad to specific).
+- Give each topic a short title of 1 to 2 words (e.g. "Funding Models", "Agriculture"). Topic titles must use full
+  words only - no abbreviations, acronyms or short forms (not "GGI Report", "NGO Models" or "CSR"). If you don't know
+  what an acronym stands for, describe the subject instead (e.g. "Report Analysis")."""
 
 
-# ── Gemini call & validation ───────────────────────────────────────────────
+################################# Gemini call & validation #######################################################
 
-def call_gemini(client, contents: str) -> SessionResult | None:
+def call_gemini(client, contents: str) -> WeekResult | None:
     response = client.models.generate_content(
         model=MODEL,
         contents=contents,
         config=types.GenerateContentConfig(
             system_instruction=SYSTEM_PROMPT,
             response_mime_type='application/json',
-            response_schema=SessionResult,
+            response_schema=WeekResult,
             temperature=0,
         ),
     )
-    return response.parsed  # None if the reply is blocked or doesn't match the schema
+    return response.parsed 
 
+############################ Reframed question validation #########################################
 
-def validate(texts: list[str], result: SessionResult) -> tuple[list[tuple[str, list[int]]], dict, list[str]]:
-    """Return (topics, questions_by_id, problems). The result is usable only if problems is empty."""
-    by_id = {q.id: q for q in result.questions if 0 <= q.id < len(texts)}
-    kept_ids = {i for i, q in by_id.items() if q.is_question}
-    problems = []
-
-    # A duplicate is merged into the earlier question it repeats; only valid back-references count
-    unique_ids = {i for i in kept_ids
-                  if not (by_id[i].duplicate_of is not None and by_id[i].duplicate_of in kept_ids
-                          and by_id[i].duplicate_of < i)}
-
-    missing = sorted(set(range(len(texts))) - by_id.keys())
-    if missing:
-        problems.append(f'entries {missing} are missing from `questions`')
-
-    assigned, topics = set(), []
+def validate(pool: list[dict], result: WeekResult) -> tuple[list[tuple[str, list[PickedQuestion]]], list[str], list[str]]:
+    problems, shortfalls = [], []
+    used_ids, used_texts, topics = set(), set(), []
     for topic in result.topics:
-        ids = [i for i in topic.question_ids if i in unique_ids and i not in assigned]
-        assigned.update(ids)
-        topics.append((topic.label.strip(), ids))
-
+        picked = []
+        for q in topic.questions:
+            text = q.question.strip()
+            if not (0 <= q.id < len(pool)) or q.id in used_ids or not text or text.lower() in used_texts:
+                continue
+            used_ids.add(q.id)
+            used_texts.add(text.lower())
+            picked.append(PickedQuestion(id=q.id, question=text))
+        topics.append((topic.label.strip(), picked))
+    # Checking if there are 6 topics and each topic has 6 questions
     if len(topics) != NUM_TOPICS:
-        problems.append(f'there are {len(topics)} topics instead of exactly {NUM_TOPICS}')
-    empty = [label for label, ids in topics if not ids]
-    if empty:
-        problems.append(f'topics {empty} contain no valid question IDs')
-    short_forms = [label for label, _ in topics if any(w.isupper() and len(w) > 1 for w in label.split())]
-    if short_forms:
-        problems.append(f'topic titles {short_forms} use abbreviations or acronyms')
-    labels = [label.lower() for label, _ in topics]
+        problems.append(f'expected exactly {NUM_TOPICS} topics, got {len(topics)}')
+    
+    
+    # Checking if topic labels are unique
+    labels = [label for label, _ in topics]
     if len(set(labels)) != len(labels):
         problems.append('topic titles are not distinct')
-    unassigned = sorted(unique_ids - assigned)
-    if unassigned:
-        problems.append(f'questions {unassigned} are not placed in any topic')
-    return topics, by_id, problems
 
+    short = [label for label, picked in topics if picked and len(picked) < QUESTIONS_PER_TOPIC]
+    if short and len(pool) >= TARGET_QUESTIONS:
+        shortfalls.append(f'topics {short} have fewer than {QUESTIONS_PER_TOPIC} questions')
+    return topics, problems, shortfalls
 
-def analyse_session(client, texts: list[str]):
-    if len(texts) < NUM_TOPICS:
-        raise ValueError(f'Only {len(texts)} entries - cannot form {NUM_TOPICS} non-empty topics')
+############################## call LLM to reframe questions and validate the questions generated by the LLM ###########################################
 
-    entries = '\n'.join(f'[{i}] {t}' for i, t in enumerate(texts))
-    contents = f'Session entries:\n\n{entries}'
-    problems = ['no valid structured reply']
+def plan_week(client, pool: list[dict]):
+    if len(pool) < NUM_TOPICS:
+        raise ValueError(f'Only {len(pool)} questions - cannot form {NUM_TOPICS} non-empty topics')
+
+    entries = '\n'.join(f'[{i}] ({"earlier" if e["earlier"] else "this week"}) {e["text"]}' for i, e in enumerate(pool))
+    contents = f'Entries:\n\n{entries}' 
+    issues = ['no valid structured reply']
     for attempt in range(1, MAX_ATTEMPTS + 1):
         result = call_gemini(client, contents)
         if result is not None:
-            topics, by_id, problems = validate(texts, result)
-            if not problems:
-                return topics, by_id
-        print(f'  attempt {attempt} rejected: {"; ".join(problems)}')
-        contents = (f'Session entries:\n\n{entries}\n\nYour previous answer was invalid because '
-                    f'{"; ".join(problems)}. Return a corrected answer with exactly {NUM_TOPICS} non-empty topics.')
-    raise RuntimeError(f'No valid {NUM_TOPICS}-topic grouping after {MAX_ATTEMPTS} attempts: {"; ".join(problems)}')
+            topics, problems, shortfalls = validate(pool, result)
+            issues = problems + shortfalls
+            if not issues or (not problems and attempt == MAX_ATTEMPTS):
+                if shortfalls:
+                    print(f'  ⚠ accepted with fewer questions: {"; ".join(shortfalls)}')
+                return topics
+        print(f'  attempt {attempt} rejected: {"; ".join(issues)}')
+        contents = (f'Entries:\n\n{entries}\n\nYour previous answer was invalid because {"; ".join(issues)}. '
+                    f'Return a corrected answer with exactly {NUM_TOPICS} topics of {QUESTIONS_PER_TOPIC} distinct questions each.')
+    raise RuntimeError(f'No valid plan after {MAX_ATTEMPTS} attempts: {"; ".join(issues)}')
 
 
 # ── Pipeline ───────────────────────────────────────────────────────────────
 
-def load_sessions() -> dict[str, pd.DataFrame]:
-    """Step 1: fetch live from Postgres and batch by session_id."""
-    df = load_questions()
-    df['event_time'] = pd.to_datetime(df['event_time'])
-    df['question_text'] = df['question_text'].astype(str).str.strip()
-    df = df[df['question_text'] != '']
-    df = df.sort_values(['session_id', 'event_time']).reset_index(drop=True)
+# monday to friday cron data (or today + 7 days)
+def week_bounds(week: str | None) -> tuple[str, datetime, datetime]:
+    if week:
+        year, num = week.upper().split('-W')
+        monday = date.fromisocalendar(int(year), int(num), 1)    
+    else:
+        today = datetime.now(timezone.utc).date()
+        monday = today - timedelta(days=today.weekday() + 7)
+    start = datetime.combine(monday, datetime.min.time(), tzinfo=timezone.utc)
+    iso_year, iso_week, _ = monday.isocalendar()
+    return f'{iso_year}-W{iso_week:02d}', start, start + timedelta(days=7)
 
-    session_groups = {str(sid): group for sid, group in df.groupby('session_id')}
-    print(f'Loaded {len(df)} rows across {len(session_groups)} sessions')
-    for sid, group in session_groups.items():
-        print(f'  Session {sid}: {len(group)} entries')
-    return session_groups
+# Step 1: per org, that week's questions, padded with the most recent earlier ones up to POOL_SIZE.
+def build_pools(start: datetime, end: datetime) -> dict[str, list[dict]]:   
+    by_org = {}
+    for row in load_questions(end=end):  # sorted by org, then time
+        by_org.setdefault(row.org_id, []).append(row)
 
+    pools = {}
+    for org, rows in by_org.items():
+        this_week = [r for r in rows if r.event_time >= start]
+        if not this_week:
+            continue
+        earlier = [r for r in reversed(rows) if r.event_time < start]  # most recent first
 
-def process_sessions(client, session_groups):
-    """Steps 2-3: one Gemini call per session."""
+        pool, seen = [], set()
+        for r in this_week + earlier:
+            if r.event_time < start and len(pool) >= POOL_SIZE:
+                break
+            text = r.question_text.strip()
+            if text.lower() in seen:  # exact repeats add nothing
+                continue
+            seen.add(text.lower())
+            pool.append({'text': text, 'asked_at': r.event_time, 'earlier': r.event_time < start})
+        pools[org] = pool
+
+        n_earlier = sum(e['earlier'] for e in pool)
+        print(f'  {org}: {len(pool) - n_earlier} entries this week'
+              + (f' + {n_earlier} from earlier weeks' if n_earlier else ''))
+    print(f'{len(pools)} orgs asked questions this week')
+    return pools
+
+# Step 2: one Gemini call per org.
+def process_orgs(client, pools):
     results, failed = {}, {}
-    for sid, group in session_groups.items():
-        texts = list(group['question_text'])
-        print(f'Processing session {sid} ({len(texts)} entries)...')
+    for org, pool in pools.items():
+        print(f'Processing {org} ({len(pool)} entries)...')
         try:
-            results[sid] = (texts, *analyse_session(client, texts))
+            results[org] = plan_week(client, pool)
         except (ValueError, RuntimeError) as e:
-            failed[sid] = str(e)
+            failed[org] = str(e)
             print(f'  ✗ skipped: {e}')
-    print(f'Done ✓  ({len(results)} sessions processed, {len(failed)} failed)')
+    print(f'Done ✓  ({len(results)} orgs processed, {len(failed)} failed)')
     return results, failed
 
+##################################### writing output to json file ########################################
 
-def build_output(results, failed):
-    """Step 4: shape results into the output JSON."""
-    output = []
-    for sid, (texts, topics, by_id) in results.items():
-        session_out = {'session_id': sid}
-        for n, (label, ids) in enumerate(topics, start=1):
-            session_out[f'topic{n}'] = {
+def build_output(week, start, end, pools, results, failed):
+    orgs = []
+    for org, topics in results.items():
+        pool = pools[org]
+        orgs.append({
+            'org_id': org,
+            'topics': [{
                 'topic_label': label,
-                'set_of_original_questions': [texts[i] for i in ids],
-                'set_of_reframed_questions': [by_id[i].reframed or by_id[i].english for i in ids],
-            }
-        output.append(session_out)
-
-        n_unique = sum(len(ids) for _, ids in topics)
-        n_kept = sum(q.is_question for q in by_id.values())
-        print(f'Session {sid}: {n_unique} unique questions, {n_kept - n_unique} duplicates merged, '
-              f'{len(texts) - n_kept} non-questions filtered out')
-        for label, ids in topics:
-            print(f'    {label}: {len(ids)}')
+                'questions': [{
+                    'day': day,
+                    'question': q.question,
+                    'original_question': pool[q.id]['text'],
+                    'asked_at': pool[q.id]['asked_at'].isoformat(),
+                    'from_earlier_week': pool[q.id]['earlier'],
+                } for day, q in enumerate(picked, start=1)],
+            } for label, picked in topics],
+        })
+        n = sum(len(picked) for _, picked in topics)
+        n_earlier = sum(pool[q.id]['earlier'] for _, picked in topics for q in picked)
+        print(f'{org}: {n} questions ({n_earlier} from earlier weeks)')
+        for label, picked in topics:
+            print(f'    {label}: {len(picked)}')
 
     if failed:
-        print(f'\n⚠ {len(failed)} session(s) left out of the output:')
-        for sid, reason in failed.items():
-            print(f'    {sid}: {reason}')
-    return output
+        print(f'\n⚠ {len(failed)} org(s) left out of the output:')
+        for org, reason in failed.items():
+            print(f'    {org}: {reason}')
+    return {
+        'week': week,
+        'week_start': start.isoformat(),
+        'week_end': end.isoformat(),
+        'generated_at': datetime.now(timezone.utc).isoformat(timespec='seconds'),
+        'orgs': orgs,
+        'failed_orgs': failed,
+    }
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument('--out', type=Path, default=OUTPUT_FILE, help=f'Output JSON path (default: {OUTPUT_FILE})')
+    parser.add_argument('--week', help='ISO week to process, e.g. 2026-W40 (default: the previous calendar week)')
+    parser.add_argument('--out', type=Path, help=f'Output JSON path (default: {OUTPUT_DIR}/<week>.json)')
+    parser.add_argument('--overwrite', action='store_true', help='Regenerate even if the output file already exists')
     args = parser.parse_args()
 
-    client = genai.Client()  # reads GEMINI_API_KEY
-    session_groups = load_sessions()
-    results, failed = process_sessions(client, session_groups)
-    output = build_output(results, failed)
+    week, start, end = week_bounds(args.week)
+    out = args.out or OUTPUT_DIR / f'{week}.json'
+    if out.exists() and not args.overwrite:
+        print(f'{out} already exists - nothing to do (use --overwrite to regenerate)')
+        return
 
-    args.out.parent.mkdir(parents=True, exist_ok=True)
-    with open(args.out, 'w', encoding='utf-8') as f:
+    print(f'Week {week}: {start:%Y-%m-%d} to {end - timedelta(days=1):%Y-%m-%d} (UTC)')
+    client = genai.Client()  # reads GEMINI_API_KEY
+    pools = build_pools(start, end)
+    results, failed = process_orgs(client, pools)
+    output = build_output(week, start, end, pools, results, failed)
+
+    out.parent.mkdir(parents=True, exist_ok=True)
+    with open(out, 'w', encoding='utf-8') as f:
         json.dump(output, f, indent=2, ensure_ascii=False)
-    print(f'Output saved to: {args.out}')
+    print(f'Output saved to: {out}')
 
 
 if __name__ == '__main__':
