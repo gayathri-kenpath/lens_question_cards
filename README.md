@@ -1,202 +1,144 @@
-# LensV3 question data pipeline
+# LensV3 Question Data Pipeline
 
-Builds a weekly question plan for each org. Every week, all the questions an org's users
-asked during the previous week (across all sessions) go to Gemini, which picks and reframes
-them into **6 topics × 6 questions**. Question N of every topic is served on day N, so each
-day shows 6 questions, one per topic, for 6 days. The next week, a fresh plan is generated
-from that week's questions, and so on.
+Builds question plans for LensV3 organizations by collecting user questions from Postgres and using Gemini to organize them into reusable discussion topics.
 
-The result is written to `output/<week>.json`, for example `output/2026-W40.json`.
+For each organization, the questions from its 25 most recent sessions are collected, deduplicated, cleaned, and grouped into **6 topics × 7 questions**. Question *N* from each topic is intended to be shown on day *N*, giving users 6 questions per day over 7 days.
 
-## How a weekly plan is built
+The final output is written to `output/questions.json`.
 
-1. **Week window.** By default the run uses the previous calendar week, Monday 00:00 to
-   Sunday 23:59 UTC. Run it on Monday 2026-10-05 and you get `2026-W40`, which is
-   2026-09-28 to 2026-10-04.
-2. **Question pool per org.** All of the org's questions from that week, minus exact repeats.
-   If there are fewer than 72 (twice the 36 needed, to allow for duplicates and
-   non-questions), the org's most recent questions from earlier weeks are added until the
-   pool reaches 72. Orgs that asked nothing that week are skipped.
-3. **Gemini, once per org.** It drops non-questions, translates, removes duplicates, and
-   reframes. It then picks 36 distinct questions, preferring this week's, and groups them
-   into 6 topics of 6 in day order. If an org doesn't have 36 distinct questions even after
-   padding, some topics get fewer.
-4. **Output.** One JSON file per week, covering all orgs:
+---
 
-```json
-{
-  "week": "2026-W40",
-  "week_start": "2026-09-28T00:00:00+00:00",
-  "week_end": "2026-10-05T00:00:00+00:00",
-  "orgs": [
-    {
-      "org_id": "DASRA",
-      "topics": [
-        {
-          "topic_label": "Funding Models",
-          "questions": [
-            { "day": 1, "question": "...", "original_question": "...",
-              "asked_at": "2026-09-29T10:12:00+00:00", "from_earlier_week": false }
-          ]
-        }
-      ]
-    }
-  ],
-  "failed_orgs": {}
-}
-```
+# Repository Overview
 
-| File                     | What it does                                                                                                            |
-| ------------------------ | ----------------------------------------------------------------------------------------------------------------------- |
-| `load_postgres.py`     | Loads `org_id`, `session_id`, `question_text`, `event_time` from Postgres, only for tenants listed in `organizations.json` |
-| `process_llm.py`       | Weekly pipeline: load from Postgres → Gemini per org → `output/<week>.json`                                       |
-| `process_llm.ipynb`    | Older per-session notebook version that reads a CSV. It doesn't follow the weekly logic                               |
-| `run_pipeline.sh`      | Runs the pipeline once, at most every`PIPELINE_INTERVAL_MINUTES`                                                      |
-| `schedule_pipeline.sh` | Installs or removes a cron job that calls`run_pipeline.sh`                                                            |
-| `organizations.json`   | Tenant list. Only rows whose`org_id` matches a name in a `tenants` list are loaded                                  |
+| File                         | Purpose                                                                      |
+| ---------------------------- | ---------------------------------------------------------------------------- |
+| `load_questions.py`          | Loads question data from Postgres                                            |
+| `refactor_questions.py`      | Runs the Gemini pipeline and generates question plans                        |
+| `tenants.json`               | Tenants the pipeline processes (the default and allowed `--orgs`)            |
+| `organizations.json`         | Reference only (deployments, roots and their tenants); not read by the code |
+| `notebook/process_llm.ipynb` | Legacy notebook version that processes CSV input                             |
+| `run_pipeline.sh`            | Runs the pipeline with interval protection                                   |
+| `schedule_pipeline.sh`       | Installs/removes the cron job                                                |
 
-## 1. Setup
+---
 
-You need Python 3 and network access to the Postgres host.
+# Setup
+
+## 1. Create a virtual environment
 
 ```bash
 python3 -m venv .venv
 ```
 
+## 2. Install dependencies
+
 ```bash
 .venv/bin/pip install python-dotenv sqlalchemy "psycopg[binary]" google-genai pydantic
 ```
 
-## 2. Configure `.env`
+## 3. Configure .env
 
-Create a `.env` file in the project root. It is gitignored, so never commit it.
-
-```
+```env
 GEMINI_API_KEY=...
-
 DATABASE_HOST=...
-SSH_PORT_NO=5432              # Postgres port
+SSH_PORT_NO=5432
 DATABASE_NAME=...
 UNIQUE_NAME_PG_USER=...
 UNIQUE_NAME_PG_PASSWD=...
-TABLE_NAME=...                # "table" or "schema.table"
-
-# Optional
-PG_SSLMODE=prefer             # Postgres SSL mode
-ORGANIZATIONS_FILE=...        # path to a different organizations.json
-PIPELINE_INTERVAL_MINUTES=30  # how often the scheduled pipeline runs
+TABLE_NAME=...
+# Optional: use a different tenant list (default: tenants.json next to the scripts)
+# TENANTS_FILE=/path/to/tenants.json
 ```
 
-## 3. Choose which tenants to load
+## 4. Choose tenants
 
-`organizations.json` groups tenants by deployment and root:
+`tenants.json` lists the tenants the pipeline works on:
 
 ```json
 {
-  "lens-v3": [
-    { "rootName": "APURVAROOT", "tenants": ["APURVA", "APURVA_COMMUNITY"] }
-  ]
+  "tenants": ["APURVA", "DASRA", "SELCO", "..."]
 }
 ```
 
-Every name in a `tenants` list, across all deployments, is allowed. Rows whose `org_id` is
-not one of these names are skipped. The match is exact and case-sensitive. `rootName` values
-are not used. To add or remove a tenant, edit this file.
+- Running without `--orgs` processes every tenant in this file.
+- `--orgs` only accepts tenants from this file. Names are matched case-insensitively (`dasra` -> `DASRA`);
+  an unknown name stops the run with an error instead of silently loading nothing.
+- To add or remove a tenant, edit this file - no code change needed.
 
-## 4. Run
+---
 
-**Load only.** This previews the questions without calling Gemini:
+# Quick Start
 
-```bash
-.venv/bin/python load_postgres.py
-```
+## Load questions
 
-To also save the rows as CSV:
-
-```bash
-.venv/bin/python load_postgres.py --out input/questions.csv
-```
-
-**Weekly pipeline.** This writes `output/<previous week>.json`. If that file already
-exists, the run does nothing:
+Loads every question from each org's 25 most recent sessions (sessions are ordered by their latest question).
+`--previous` loads the 25 sessions before those (sessions 26-50). Without `--orgs`, all tenants in
+`tenants.json` are loaded.
 
 ```bash
-.venv/bin/python process_llm.py
+.venv/bin/python load_questions.py
 ```
-
-To build the plan for a specific ISO week:
 
 ```bash
-.venv/bin/python process_llm.py --week 2026-W40
+.venv/bin/python load_questions.py --orgs TENANT1 TENANT2 --out input/questions.csv
 ```
-
-To regenerate a week that already has a file:
 
 ```bash
-.venv/bin/python process_llm.py --week 2026-W40 --overwrite
+.venv/bin/python load_questions.py --orgs TENANT_NAME --previous
 ```
 
-To write the output somewhere else:
+## Generate plans
+
+Only the orgs need to be passed (default: all tenants in `tenants.json`). For each org the plan is built from its latest
+25 sessions; sessions 26-50 are used as "earlier" padding when there are too few distinct questions.
+
+Output:
+- `output/questions.json` - each org's current plan
+- `output/previous_qn.json` - each org's plan before that
+
+Each file holds `{"tenants": [...]}`, with one entry per tenant from `tenants.json`:
+
+```json
+{
+  "tenant_name": "SELCO",
+  "session_id": ["41b0...", "9c2e...", "..."],
+  "topic1": {
+    "topic_label": "Solar Financing",
+    "set_of_original_questions": ["what r loan options for solar", "..."],
+    "refactored_questions": ["What loan options exist for solar?", "..."],
+    "session_ids": ["41b0...", "..."]
+  },
+  "topic2": {"...": "..."}
+}
+```
+
+`session_id` lists the sessions the plan was built from. Inside each topic (`topic1`-`topic6`), the three lists line up
+by index and are in day order: item 0 is shown on day 1, item 1 on day 2, and so on. `session_ids[i]` is the session
+that `set_of_original_questions[i]` came from.
+
+An org is only regenerated when its latest 25 sessions have changed (a new session arrived); otherwise it
+is skipped, so frequent scheduled runs don't call Gemini for nothing. When an org is regenerated, its old
+plan moves from `questions.json` to `previous_qn.json`. `--overwrite` regenerates regardless.
+
+`--previous` builds plans from sessions 26-50 (with 51-75 as padding) and saves them straight to
+`previous_qn.json`, leaving `questions.json` untouched. Use it to backfill the previous plan.
 
 ```bash
-.venv/bin/python process_llm.py --out output/my_run.json
+.venv/bin/python refactor_questions.py
 ```
-
-**From Python:**
-
-```python
-from datetime import datetime, timezone
-from load_postgres import load_questions
-
-rows = load_questions()   # rows straight from Postgres: row.org_id, row.session_id, row.question_text, row.event_time
-rows = load_questions(start=datetime(2026, 9, 28, tzinfo=timezone.utc),
-                      end=datetime(2026, 10, 5, tzinfo=timezone.utc))   # start <= event_time < end
-rows = load_questions(tenant_names=['APURVA', 'TEDX'])                  # or an explicit tenant list
-```
-
-## 5. Run on a schedule (macOS / Linux cron)
-
-To install the cron job:
 
 ```bash
-./schedule_pipeline.sh install
+.venv/bin/python refactor_questions.py --orgs TENANT_NAME
 ```
-
-To check whether it's installed and see the current interval:
 
 ```bash
-./schedule_pipeline.sh status
+.venv/bin/python refactor_questions.py --orgs TENANT1 TENANT2
 ```
-
-To remove it:
 
 ```bash
-./schedule_pipeline.sh uninstall
+.venv/bin/python refactor_questions.py --orgs TENANT_NAME --overwrite
 ```
-
-Cron calls `run_pipeline.sh` every minute, but the script only runs the pipeline once
-`PIPELINE_INTERVAL_MINUTES` have passed since the last run. It reads the interval from
-`.env` each time, so changes apply without reinstalling. If a run is still going, the next
-one is skipped.
-
-Because `process_llm.py` does nothing once the week's file exists, frequent runs are cheap.
-Each week's plan is generated on the first run after Monday 00:00 UTC, and later runs that
-week exit straight away. If some orgs fail, they are listed under `failed_orgs` and are not
-retried automatically. To retry them, run with `--week <week> --overwrite`.
-
-To run it right away, ignoring the interval:
 
 ```bash
-./run_pipeline.sh --force
+.venv/bin/python refactor_questions.py --orgs TENANT_NAME --previous
 ```
-
-Logs are written to `logs/pipeline.log`.
-
-## Troubleshooting
-
-- **`Missing Postgres settings in .env`**: a required key in step 2 is empty or missing.
-- **`connection ... Operation timed out`**: the database host isn't reachable from your
-  network. You may need a VPN or an SSH tunnel, or your IP may need to be allowlisted.
-- **0 rows loaded**: check that the `org_id` values in the table match the tenant names in
-  `organizations.json` exactly, including case.
-- **`ModuleNotFoundError`**: you used the system `python`. Run `.venv/bin/python` instead.

@@ -1,6 +1,6 @@
 #!/bin/bash
-# Run one pass of the pipeline: fetch from Postgres -> Gemini -> output/<previous week>.json
-# (process_llm.py exits immediately if that week's file already exists, so each week is built once)
+# Run one pass of the pipeline: fetch from Postgres -> Gemini -> output/questions.json
+# (refactor_questions.py only calls Gemini for orgs with new sessions since their last plan)
 #
 # Cron calls this every minute; it only actually runs once PIPELINE_INTERVAL_MINUTES
 # (read from .env on every call, default 30) has passed since the last run started.
@@ -51,7 +51,7 @@ trap 'rmdir "$LOCK_DIR"' EXIT
 date +%s > "$LAST_RUN_FILE"
 
 log "Run started (interval: every $INTERVAL min)"
-if "$PROJECT_DIR/.venv/bin/python" process_llm.py >> "$LOG_FILE" 2>&1; then
+if "$PROJECT_DIR/.venv/bin/python" refactor_questions.py >> "$LOG_FILE" 2>&1; then
     log "Run finished OK"
 else
     status=$?
