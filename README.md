@@ -87,6 +87,21 @@ Loads every question from each org's 25 most recent sessions (sessions are order
 .venv/bin/python load_questions.py --orgs TENANT_NAME --previous
 ```
 
+`--min_questions N` keeps only sessions with at least N questions. The filter is applied before the latest 25 are
+picked, so you still get up to 25 sessions per org, all meeting the threshold.
+
+```bash
+.venv/bin/python load_questions.py --orgs TENANT_NAME --min_questions 5
+```
+
+```bash
+.venv/bin/python load_questions.py --min_questions 5
+```
+
+```bash
+.venv/bin/python load_questions.py --orgs TENANT_NAME --min_questions 5 --previous --out input/questions.csv
+```
+
 ## Generate plans
 
 Only the orgs need to be passed (default: all tenants in `tenants.json`). For each org the plan is built from its latest
@@ -141,4 +156,16 @@ plan moves from `questions.json` to `previous_qn.json`. `--overwrite` regenerate
 
 ```bash
 .venv/bin/python refactor_questions.py --orgs TENANT_NAME --previous
+```
+
+`--min_questions N` takes each org's latest 25 sessions and plans only from those with at least N questions
+(the padding sessions 26-50 are filtered the same way). Changing N changes which sessions a plan is built from,
+so the affected orgs are regenerated on the next run.
+
+```bash
+.venv/bin/python refactor_questions.py --min_questions 5
+```
+
+```bash
+.venv/bin/python refactor_questions.py --orgs TENANT_NAME --min_questions 5
 ```

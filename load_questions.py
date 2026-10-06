@@ -78,7 +78,9 @@ def fetch_rows(query, params=None):
 # Sessions are ranked per org by their latest question (rank 1 = most recent session).
 # skip_sessions=0, num_sessions=25 -> the latest 25 sessions of every org; skip_sessions=25 -> sessions 26-50.
 # Each row also carries session_rank so callers can split the result into batches.
-def load_questions(table_name=None, tenant_names=None, skip_sessions=0, num_sessions=SESSIONS_PER_BATCH):
+# min_questions keeps only sessions with at least that many questions; it is applied before ranking, so the
+# batch is the latest 25 sessions that meet the threshold.
+def load_questions(table_name=None, tenant_names=None, skip_sessions=0, num_sessions=SESSIONS_PER_BATCH, min_questions=1):
     table_name = table_name or os.getenv('TABLE_NAME')
     if not table_name:
         raise RuntimeError('Missing TABLE_NAME in .env')
@@ -94,6 +96,7 @@ def load_questions(table_name=None, tenant_names=None, skip_sessions=0, num_sess
     sessions = (select(source.c.org_id, source.c.session_id, func.max(source.c.event_time).label('last_at'))
                 .where(usable)
                 .group_by(source.c.org_id, source.c.session_id)
+                .having(func.count() >= min_questions)
                 .subquery())
     ranked = select(sessions.c.org_id, sessions.c.session_id,
                     func.row_number().over(partition_by=sessions.c.org_id,
@@ -115,11 +118,17 @@ def main():
     parser.add_argument('--previous', action='store_true',
                         help=f'Load the {SESSIONS_PER_BATCH} sessions before the latest {SESSIONS_PER_BATCH} '
                              f'(sessions {SESSIONS_PER_BATCH + 1}-{2 * SESSIONS_PER_BATCH}) instead')
+    parser.add_argument('--min_questions', type=int, default=1, metavar='N',
+                        help='Only load sessions with at least N questions (default: 1, i.e. every session)')
     args = parser.parse_args()
+    if args.min_questions < 1:
+        parser.error('--min_questions must be 1 or more')
 
     skip = SESSIONS_PER_BATCH if args.previous else 0
-    rows = load_questions(tenant_names=args.orgs, skip_sessions=skip)
-    print(f'Sessions {skip + 1}-{skip + SESSIONS_PER_BATCH} per org: loaded {len(rows)} rows')
+    rows = load_questions(tenant_names=args.orgs, skip_sessions=skip, min_questions=args.min_questions)
+    print(f'Sessions {skip + 1}-{skip + SESSIONS_PER_BATCH} per org'
+          + (f' (only sessions with {args.min_questions}+ questions)' if args.min_questions > 1 else '')
+          + f': loaded {len(rows)} rows')
     by_org = {}
     for r in rows:
         by_org.setdefault(r.org_id, set()).add(r.session_id)
